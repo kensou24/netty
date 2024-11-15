@@ -5,7 +5,7 @@
  * version 2.0 (the "License"); you may not use this file except in compliance
  * with the License. You may obtain a copy of the License at:
  *
- *   http://www.apache.org/licenses/LICENSE-2.0
+ *   https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
@@ -18,15 +18,12 @@ package io.netty.handler.codec.dns;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.socket.InternetProtocolFamily;
 import io.netty.handler.codec.UnsupportedMessageTypeException;
-import io.netty.util.internal.StringUtil;
-import io.netty.util.internal.UnstableApi;
 
 /**
  * The default {@link DnsRecordEncoder} implementation.
  *
  * @see DefaultDnsRecordDecoder
  */
-@UnstableApi
 public class DefaultDnsRecordEncoder implements DnsRecordEncoder {
     private static final int PREFIX_MASK = Byte.SIZE - 1;
 
@@ -42,6 +39,10 @@ public class DefaultDnsRecordEncoder implements DnsRecordEncoder {
         out.writeShort(question.dnsClass());
     }
 
+    private static final Class<?>[] SUPPORTED_MESSAGES = new Class<?>[] {
+            DnsQuestion.class, DnsPtrRecord.class,
+            DnsOptEcsRecord.class, DnsOptPseudoRecord.class, DnsRawRecord.class };
+
     @Override
     public void encodeRecord(DnsRecord record, ByteBuf out) throws Exception {
         if (record instanceof DnsQuestion) {
@@ -55,7 +56,7 @@ public class DefaultDnsRecordEncoder implements DnsRecordEncoder {
         } else if (record instanceof DnsRawRecord) {
             encodeRawRecord((DnsRawRecord) record, out);
         } else {
-            throw new UnsupportedMessageTypeException(StringUtil.simpleClassName(record));
+            throw new UnsupportedMessageTypeException(record, SUPPORTED_MESSAGES);
         }
     }
 
@@ -90,7 +91,7 @@ public class DefaultDnsRecordEncoder implements DnsRecordEncoder {
                     sourcePrefixLength + " (expected: 0 >= " + addressBits + ')');
         }
 
-        // See http://www.iana.org/assignments/address-family-numbers/address-family-numbers.xhtml
+        // See https://www.iana.org/assignments/address-family-numbers/address-family-numbers.xhtml
         final short addressNumber = (short) (bytes.length == 4 ?
                 InternetProtocolFamily.IPv4.addressNumber() : InternetProtocolFamily.IPv6.addressNumber());
         int payloadLength = calculateEcsAddressLength(sourcePrefixLength, lowOrderBitsToPreserve);

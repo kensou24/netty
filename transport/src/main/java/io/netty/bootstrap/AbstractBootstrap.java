@@ -5,7 +5,7 @@
  * version 2.0 (the "License"); you may not use this file except in compliance
  * with the License. You may obtain a copy of the License at:
  *
- *   http://www.apache.org/licenses/LICENSE-2.0
+ *   https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
@@ -37,8 +37,10 @@ import io.netty.util.internal.logging.InternalLogger;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -50,14 +52,22 @@ import java.util.concurrent.ConcurrentHashMap;
  * transports such as datagram (UDP).</p>
  */
 public abstract class AbstractBootstrap<B extends AbstractBootstrap<B, C>, C extends Channel> implements Cloneable {
+    @SuppressWarnings("unchecked")
+    private static final Map.Entry<ChannelOption<?>, Object>[] EMPTY_OPTION_ARRAY = new Map.Entry[0];
+    @SuppressWarnings("unchecked")
+    private static final Map.Entry<AttributeKey<?>, Object>[] EMPTY_ATTRIBUTE_ARRAY = new Map.Entry[0];
 
     volatile EventLoopGroup group;
     @SuppressWarnings("deprecation")
     private volatile ChannelFactory<? extends C> channelFactory;
     private volatile SocketAddress localAddress;
-    private final Map<ChannelOption<?>, Object> options = new ConcurrentHashMap<ChannelOption<?>, Object>();
+
+    // The order in which ChannelOptions are applied is important they may depend on each other for validation
+    // purposes.
+    private final Map<ChannelOption<?>, Object> options = new LinkedHashMap<ChannelOption<?>, Object>();
     private final Map<AttributeKey<?>, Object> attrs = new ConcurrentHashMap<AttributeKey<?>, Object>();
     private volatile ChannelHandler handler;
+    private volatile ClassLoader extensionsClassLoader;
 
     AbstractBootstrap() {
         // Disallow extending from a different package.
@@ -68,8 +78,11 @@ public abstract class AbstractBootstrap<B extends AbstractBootstrap<B, C>, C ext
         channelFactory = bootstrap.channelFactory;
         handler = bootstrap.handler;
         localAddress = bootstrap.localAddress;
-        options.putAll(bootstrap.options);
+        synchronized (bootstrap.options) {
+            options.putAll(bootstrap.options);
+        }
         attrs.putAll(bootstrap.attrs);
+        extensionsClassLoader = bootstrap.extensionsClassLoader;
     }
 
     /**
@@ -162,10 +175,12 @@ public abstract class AbstractBootstrap<B extends AbstractBootstrap<B, C>, C ext
      */
     public <T> B option(ChannelOption<T> option, T value) {
         ObjectUtil.checkNotNull(option, "option");
-        if (value == null) {
-            options.remove(option);
-        } else {
-            options.put(option, value);
+        synchronized (options) {
+            if (value == null) {
+                options.remove(option);
+            } else {
+                options.put(option, value);
+            }
         }
         return self();
     }
@@ -181,6 +196,19 @@ public abstract class AbstractBootstrap<B extends AbstractBootstrap<B, C>, C ext
         } else {
             attrs.put(key, value);
         }
+        return self();
+    }
+
+    /**
+     * Load {@link ChannelInitializerExtension}s using the given class loader.
+     * <p>
+     * By default, the extensions will be loaded by the same class loader that loaded this bootstrap class.
+     *
+     * @param classLoader The class loader to use for loading {@link ChannelInitializerExtension}s.
+     * @return This bootstrap.
+     */
+    public B extensionsClassLoader(ClassLoader classLoader) {
+        extensionsClassLoader = classLoader;
         return self();
     }
 
@@ -331,6 +359,14 @@ public abstract class AbstractBootstrap<B extends AbstractBootstrap<B, C>, C ext
 
     abstract void init(Channel channel) throws Exception;
 
+    Collection<ChannelInitializerExtension> getInitializerExtensions() {
+        ClassLoader loader = extensionsClassLoader;
+        if (loader == null) {
+            loader = getClass().getClassLoader();
+        }
+        return ChannelInitializerExtensions.getExtensions().extensions(loader);
+    }
+
     private static void doBind0(
             final ChannelFuture regFuture, final Channel channel,
             final SocketAddress localAddress, final ChannelPromise promise) {
@@ -373,6 +409,24 @@ public abstract class AbstractBootstrap<B extends AbstractBootstrap<B, C>, C ext
      */
     public abstract AbstractBootstrapConfig<B, C> config();
 
+    final Map.Entry<ChannelOption<?>, Object>[] newOptionsArray() {
+        return newOptionsArray(options);
+    }
+
+    static Map.Entry<ChannelOption<?>, Object>[] newOptionsArray(Map<ChannelOption<?>, Object> options) {
+        synchronized (options) {
+            return new LinkedHashMap<ChannelOption<?>, Object>(options).entrySet().toArray(EMPTY_OPTION_ARRAY);
+        }
+    }
+
+    final Map.Entry<AttributeKey<?>, Object>[] newAttributesArray() {
+        return newAttributesArray(attrs0());
+    }
+
+    static Map.Entry<AttributeKey<?>, Object>[] newAttributesArray(Map<AttributeKey<?>, Object> attributes) {
+        return attributes.entrySet().toArray(EMPTY_ATTRIBUTE_ARRAY);
+    }
+
     final Map<ChannelOption<?>, Object> options0() {
         return options;
     }
@@ -395,7 +449,9 @@ public abstract class AbstractBootstrap<B extends AbstractBootstrap<B, C>, C ext
     }
 
     final Map<ChannelOption<?>, Object> options() {
-        return copiedMap(options);
+        synchronized (options) {
+            return copiedMap(options);
+        }
     }
 
     final Map<AttributeKey<?>, Object> attrs() {
@@ -422,16 +478,6 @@ public abstract class AbstractBootstrap<B extends AbstractBootstrap<B, C>, C ext
         for (Map.Entry<ChannelOption<?>, Object> e: options) {
             setChannelOption(channel, e.getKey(), e.getValue(), logger);
         }
-    }
-
-    @SuppressWarnings("unchecked")
-    static Map.Entry<AttributeKey<?>, Object>[] newAttrArray(int size) {
-        return new Map.Entry[size];
-    }
-
-    @SuppressWarnings("unchecked")
-    static Map.Entry<ChannelOption<?>, Object>[] newOptionArray(int size) {
-        return new Map.Entry[size];
     }
 
     @SuppressWarnings("unchecked")

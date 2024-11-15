@@ -5,7 +5,7 @@
  * version 2.0 (the "License"); you may not use this file except in compliance
  * with the License. You may obtain a copy of the License at:
  *
- *   http://www.apache.org/licenses/LICENSE-2.0
+ *   https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
@@ -15,14 +15,24 @@
  */
 package io.netty.microbench.util;
 
+import io.netty.util.concurrent.AbstractEventExecutor;
+import io.netty.util.concurrent.AbstractScheduledEventExecutor;
+import io.netty.util.concurrent.DefaultEventExecutor;
+import io.netty.util.concurrent.DefaultPromise;
 import io.netty.util.concurrent.DefaultThreadFactory;
+import io.netty.util.concurrent.EventExecutor;
+import io.netty.util.concurrent.FastThreadLocalThread;
+import io.netty.util.concurrent.Future;
+import io.netty.util.concurrent.SingleThreadEventExecutor;
 import io.netty.util.internal.SystemPropertyUtil;
+import io.netty.util.internal.ThreadExecutorMap;
 import io.netty.util.internal.logging.InternalLogger;
 import io.netty.util.internal.logging.InternalLoggerFactory;
 
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 import org.openjdk.jmh.annotations.Fork;
 import org.openjdk.jmh.runner.options.ChainedOptionsBuilder;
@@ -36,11 +46,60 @@ public class AbstractMicrobenchmark extends AbstractMicrobenchmarkBase {
     protected static final int DEFAULT_FORKS = 2;
 
     public static final class HarnessExecutor extends ThreadPoolExecutor {
-        private final  InternalLogger logger = InternalLoggerFactory.getInstance(AbstractMicrobenchmark.class);
+        private static final InternalLogger logger = InternalLoggerFactory.getInstance(AbstractMicrobenchmark.class);
 
         public HarnessExecutor(int maxThreads, String prefix) {
             super(maxThreads, maxThreads, 0, TimeUnit.MILLISECONDS,
-                    new LinkedBlockingQueue<Runnable>(), new DefaultThreadFactory(prefix));
+                    new LinkedBlockingQueue<Runnable>(),
+                    new DefaultThreadFactory(prefix));
+            EventExecutor eventExecutor = new AbstractEventExecutor() {
+                @Override
+                public void shutdown() {
+                    throw new UnsupportedOperationException();
+                }
+
+                @Override
+                public boolean inEventLoop(Thread thread) {
+                    return thread instanceof FastThreadLocalThread;
+                }
+
+                @Override
+                public boolean isShuttingDown() {
+                    throw new UnsupportedOperationException();
+                }
+
+                @Override
+                public Future<?> shutdownGracefully(long quietPeriod, long timeout, TimeUnit unit) {
+                    throw new UnsupportedOperationException();
+                }
+
+                @Override
+                public Future<?> terminationFuture() {
+                    throw new UnsupportedOperationException();
+                }
+
+                @Override
+                public boolean isShutdown() {
+                    throw new UnsupportedOperationException();
+                }
+
+                @Override
+                public boolean isTerminated() {
+                    throw new UnsupportedOperationException();
+                }
+
+                @Override
+                public boolean awaitTermination(long timeout, TimeUnit unit) throws InterruptedException {
+                    throw new UnsupportedOperationException();
+                }
+
+                @Override
+                public void execute(Runnable command) {
+                    throw new UnsupportedOperationException();
+                }
+            };
+            setThreadFactory(ThreadExecutorMap.apply(getThreadFactory(), eventExecutor));
+
             logger.debug("Using harness executor");
         }
     }
@@ -58,9 +117,12 @@ public class AbstractMicrobenchmark extends AbstractMicrobenchmarkBase {
     public AbstractMicrobenchmark(boolean disableAssertions, boolean disableHarnessExecutor) {
         final String[] customArgs;
         if (disableHarnessExecutor) {
-            customArgs = new String[]{"-Xms768m", "-Xmx768m", "-XX:MaxDirectMemorySize=768m"};
+            customArgs = new String[]{"-Xms768m", "-Xmx768m", "-XX:MaxDirectMemorySize=768m",
+                    "-XX:BiasedLockingStartupDelay=0"};
         } else {
-            customArgs = new String[]{"-Xms768m", "-Xmx768m", "-XX:MaxDirectMemorySize=768m", "-Djmh.executor=CUSTOM",
+            customArgs = new String[]{"-Xms768m", "-Xmx768m", "-XX:MaxDirectMemorySize=768m",
+                    "-XX:BiasedLockingStartupDelay=0",
+                    "-Djmh.executor=CUSTOM",
                     "-Djmh.executor.class=io.netty.microbench.util.AbstractMicrobenchmark$HarnessExecutor"};
         }
         String[] jvmArgs = new String[BASE_JVM_ARGS.length + customArgs.length];

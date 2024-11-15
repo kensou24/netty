@@ -5,7 +5,7 @@
  * "License"); you may not use this file except in compliance with the License. You may obtain a
  * copy of the License at:
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ * https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software distributed under the License
  * is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express
@@ -25,7 +25,6 @@ import io.netty.channel.DefaultChannelPromise;
 import io.netty.handler.ssl.ApplicationProtocolNames;
 import io.netty.util.AsciiString;
 import io.netty.util.concurrent.EventExecutor;
-import io.netty.util.internal.UnstableApi;
 
 import static io.netty.buffer.Unpooled.directBuffer;
 import static io.netty.buffer.Unpooled.unreleasableBuffer;
@@ -41,7 +40,6 @@ import static java.util.concurrent.TimeUnit.SECONDS;
 /**
  * Constants and utility method used for encoding/decoding HTTP2 frames.
  */
-@UnstableApi
 public final class Http2CodecUtil {
     public static final int CONNECTION_STREAM_ID = 0;
     public static final int HTTP_UPGRADE_STREAM_ID = 1;
@@ -78,7 +76,7 @@ public final class Http2CodecUtil {
             FRAME_HEADER_LENGTH + MAX_PADDING_LENGTH_LENGTH + INT_FIELD_LENGTH;
     public static final int GO_AWAY_FRAME_HEADER_LENGTH = FRAME_HEADER_LENGTH + 2 * INT_FIELD_LENGTH;
     public static final int WINDOW_UPDATE_FRAME_LENGTH = FRAME_HEADER_LENGTH + INT_FIELD_LENGTH;
-    public static final int CONTINUATION_FRAME_HEADER_LENGTH = FRAME_HEADER_LENGTH + MAX_PADDING_LENGTH_LENGTH;
+    public static final int CONTINUATION_FRAME_HEADER_LENGTH = FRAME_HEADER_LENGTH;
 
     public static final char SETTINGS_HEADER_TABLE_SIZE = 1;
     public static final char SETTINGS_ENABLE_PUSH = 2;
@@ -262,7 +260,7 @@ public final class Http2CodecUtil {
         private final ChannelPromise promise;
         private int expectedCount;
         private int doneCount;
-        private Throwable lastFailure;
+        private Throwable aggregateFailure;
         private boolean doneAllocating;
 
         SimpleChannelPromiseAggregator(ChannelPromise promise, Channel c, EventExecutor e) {
@@ -301,7 +299,7 @@ public final class Http2CodecUtil {
         public boolean tryFailure(Throwable cause) {
             if (allowFailure()) {
                 ++doneCount;
-                lastFailure = cause;
+                setAggregateFailure(cause);
                 if (allPromisesDone()) {
                     return tryPromise();
                 }
@@ -322,7 +320,7 @@ public final class Http2CodecUtil {
         public ChannelPromise setFailure(Throwable cause) {
             if (allowFailure()) {
                 ++doneCount;
-                lastFailure = cause;
+                setAggregateFailure(cause);
                 if (allPromisesDone()) {
                     return setPromise();
                 }
@@ -368,22 +366,28 @@ public final class Http2CodecUtil {
         }
 
         private ChannelPromise setPromise() {
-            if (lastFailure == null) {
+            if (aggregateFailure == null) {
                 promise.setSuccess();
                 return super.setSuccess(null);
             } else {
-                promise.setFailure(lastFailure);
-                return super.setFailure(lastFailure);
+                promise.setFailure(aggregateFailure);
+                return super.setFailure(aggregateFailure);
             }
         }
 
         private boolean tryPromise() {
-            if (lastFailure == null) {
+            if (aggregateFailure == null) {
                 promise.trySuccess();
                 return super.trySuccess(null);
             } else {
-                promise.tryFailure(lastFailure);
-                return super.tryFailure(lastFailure);
+                promise.tryFailure(aggregateFailure);
+                return super.tryFailure(aggregateFailure);
+            }
+        }
+
+        private void setAggregateFailure(Throwable cause) {
+            if (aggregateFailure == null) {
+                aggregateFailure = cause;
             }
         }
     }

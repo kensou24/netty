@@ -5,7 +5,7 @@
  * version 2.0 (the "License"); you may not use this file except in compliance
  * with the License. You may obtain a copy of the License at:
  *
- *   http://www.apache.org/licenses/LICENSE-2.0
+ *   https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
@@ -15,13 +15,23 @@
  */
 package io.netty.buffer;
 
-import org.junit.Test;
+import io.netty.util.ReferenceCountUtil;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.function.Executable;
 
 import java.io.EOFException;
+import java.io.IOException;
 import java.nio.charset.Charset;
 
-import static io.netty.util.internal.EmptyArrays.*;
-import static org.junit.Assert.*;
+import static io.netty.util.internal.EmptyArrays.EMPTY_BYTES;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.fail;
 
 /**
  * Tests channel buffer streams
@@ -279,18 +289,66 @@ public class ByteBufStreamTest {
         in2.close();
     }
 
-    @Test(expected = EOFException.class)
+    @Test
     public void testReadByteLengthRespected() throws Exception {
         // case1
         ByteBuf buf = Unpooled.buffer(16);
         buf.writeBytes(new byte[] { 1, 2, 3, 4, 5, 6 });
 
-        ByteBufInputStream in = new ByteBufInputStream(buf, 0);
+        final ByteBufInputStream in = new ByteBufInputStream(buf, 0);
         try {
-            in.readByte();
+            assertThrows(EOFException.class, new Executable() {
+                @Override
+                public void execute() throws IOException {
+                    in.readBoolean();
+                }
+            });
         } finally {
             buf.release();
             in.close();
         }
+    }
+
+    @Test
+    public void testReleaseOnCloseInByteBufOutputStream() throws Exception {
+        ByteBuf buf = PooledByteBufAllocator.DEFAULT.buffer(16);
+        buf.writeBytes(new byte[] { 1, 2, 3, 4, 5, 6 });
+        final ByteBufOutputStream out = new ByteBufOutputStream(buf, true);
+        try {
+            out.writeBoolean(true);
+            out.writeBoolean(false);
+            out.writeByte(42);
+            out.writeByte(224);
+            out.writeBytes("Hello, World!");
+            out.write(new byte[]{1, 3, 3, 4}, 0, 0);
+        } finally {
+            out.close();
+        }
+        // When releaseOnClose is set to true, ByteBuf will be automatically released after calling the close method of
+        // ByteBufOutputStream.
+        assertEquals(0, out.buffer().refCnt());
+    }
+
+    @Test
+    public void testGeneralByteBufOutputStream() throws Exception {
+        // case1
+        ByteBuf buf = PooledByteBufAllocator.DEFAULT.buffer(16);
+        buf.writeBytes(new byte[] { 1, 2, 3, 4, 5, 6 });
+        final ByteBufOutputStream out = new ByteBufOutputStream(buf, false);
+        try {
+            out.writeBoolean(true);
+            out.writeBoolean(false);
+            out.writeByte(42);
+            out.writeByte(224);
+            out.writeBytes("Hello, World!");
+            out.write(new byte[]{1, 3, 3, 4}, 0, 0);
+        } finally {
+            out.close();
+        }
+        assertEquals(1, out.buffer().refCnt());
+
+        // When releaseOnClose is not set or releaseOnClose is false, ByteBuf must be released manually.
+        out.buffer().release();
+        assertEquals(0, out.buffer().refCnt());
     }
 }
